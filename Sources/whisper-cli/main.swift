@@ -82,9 +82,10 @@ struct WhisperCLI: AsyncParsableCommand {
             let eot = Int(g["eot"]!.item(Int32.self))
             let goldGen = g["generated"]!.asArray(Int32.self).map { Int($0) }
             let gen = model.greedyDecode(mel: g["mel"]!, initialTokens: initial, eot: eot)
-            print("decode swift: \(gen)")
-            print("decode golden: \(goldGen)")
-            print("greedy decode \(gen == goldGen ? "✅ token-exact match" : "❌ MISMATCH")")
+            let genCached = model.greedyDecodeCached(mel: g["mel"]!, initialTokens: initial, eot: eot)
+            print("decode golden:   \(goldGen)")
+            print("decode no-cache: \(gen)   \(gen == goldGen ? "✅" : "❌")")
+            print("decode cached:   \(genCached)   \(genCached == goldGen ? "✅ token-exact" : "❌ MISMATCH")")
         }
 
         if let transcribeMel, let tokenizer {

@@ -13,6 +13,21 @@ func sinusoids(length: Int, channels: Int, maxTimescale: Float = 10000) -> MLXAr
     return concatenated([MLX.sin(scaledTime), MLX.cos(scaledTime)], axis: 1)
 }
 
+/// Incremental decode cache. One `Entry` per attention: self-attn grows each step;
+/// cross-attn is computed once from the (fixed) encoder output and reused.
+final class WhisperKVCache {
+    final class Entry {
+        var k: MLXArray?
+        var v: MLXArray?
+    }
+    let selfAttn: [Entry]
+    let crossAttn: [Entry]
+    init(layers: Int) {
+        selfAttn = (0 ..< layers).map { _ in Entry() }
+        crossAttn = (0 ..< layers).map { _ in Entry() }
+    }
+}
+
 /// Whisper multi-head attention. `key` has no bias (reference detail). Scales q and k
 /// by headDim^-0.25 each (Whisper convention).
 final class MultiHeadAttention: Module {
@@ -30,10 +45,25 @@ final class MultiHeadAttention: Module {
         self.out = Linear(nState, nState, bias: true)
     }
 
-    func callAsFunction(_ x: MLXArray, xa: MLXArray? = nil, mask: MLXArray? = nil) -> MLXArray {
+    func callAsFunction(_ x: MLXArray, xa: MLXArray? = nil, mask: MLXArray? = nil, cache: WhisperKVCache.Entry? = nil) -> MLXArray {
         let q = query(x)
-        let k = key(xa ?? x)
-        let v = value(xa ?? x)
+        var k: MLXArray
+        var v: MLXArray
+        if xa == nil {
+            // Self-attention: append new K/V to the (growing) cache.
+            k = key(x); v = value(x)
+            if let ck = cache?.k, let cv = cache?.v {
+                k = concatenated([ck, k], axis: 1)
+                v = concatenated([cv, v], axis: 1)
+            }
+            cache?.k = k; cache?.v = v
+        } else if let ck = cache?.k, let cv = cache?.v {
+            // Cross-attention, already cached (encoder output is fixed).
+            k = ck; v = cv
+        } else {
+            k = key(xa!); v = value(xa!)
+            cache?.k = k; cache?.v = v
+        }
         return out(qkvAttention(q, k, v, mask: mask))
     }
 
@@ -74,10 +104,11 @@ final class ResidualAttentionBlock: Module {
         self.mlp_ln = LayerNorm(dimensions: nState)
     }
 
-    func callAsFunction(_ x: MLXArray, xa: MLXArray? = nil, mask: MLXArray? = nil) -> MLXArray {
-        var x = x + attn(attn_ln(x), mask: mask)
+    func callAsFunction(_ x: MLXArray, xa: MLXArray? = nil, mask: MLXArray? = nil,
+                        selfCache: WhisperKVCache.Entry? = nil, crossCache: WhisperKVCache.Entry? = nil) -> MLXArray {
+        var x = x + attn(attn_ln(x), mask: mask, cache: selfCache)
         if let cross_attn, let cross_attn_ln {
-            x = x + cross_attn(cross_attn_ln(x), xa: xa)
+            x = x + cross_attn(cross_attn_ln(x), xa: xa, cache: crossCache)
         }
         x = x + mlp2(gelu(mlp1(mlp_ln(x))))
         return x
@@ -122,11 +153,15 @@ final class TextDecoder: Module {
     }
 
     /// tokens: (B, L) Int32 ; xa: encoder audio features. Returns logits (B, L, nVocab).
-    func callAsFunction(_ tokens: MLXArray, xa: MLXArray) -> MLXArray {
+    /// With `cache`, only the new `tokens` are processed; positions start at the cache length.
+    func callAsFunction(_ tokens: MLXArray, xa: MLXArray, cache: WhisperKVCache? = nil) -> MLXArray {
         let L = tokens.dim(-1)
-        var x = token_embedding(tokens) + positional_embedding[0 ..< L]
-        let mask = Self.causalMask(L)
-        for b in blocks { x = b(x, xa: xa, mask: mask) }
+        let offset = cache?.selfAttn.first?.k?.dim(1) ?? 0
+        var x = token_embedding(tokens) + positional_embedding[offset ..< offset + L]
+        let mask = Self.causalMask(L)  // (L,L); broadcasts over cached keys for single-step decode
+        for (i, b) in blocks.enumerated() {
+            x = b(x, xa: xa, mask: mask, selfCache: cache?.selfAttn[i], crossCache: cache?.crossAttn[i])
+        }
         x = ln(x)
         return token_embedding.asLinear(x)
     }

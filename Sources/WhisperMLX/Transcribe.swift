@@ -23,7 +23,7 @@ public struct WhisperPipeline {
     /// log-mel `(1, nFrames, nMels)` → transcript text.
     public func transcribe(mel: MLXArray, language: String = "en", translate: Bool = false) -> String {
         let initial = tokenizer.initialTokens(language: language, translate: translate)
-        let gen = model.greedyDecode(mel: mel, initialTokens: initial, eot: tokenizer.eot)
+        let gen = model.greedyDecodeCached(mel: mel, initialTokens: initial, eot: tokenizer.eot)
         return tokenizer.decode(gen).trimmingCharacters(in: .whitespaces)
     }
 
