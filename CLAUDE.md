@@ -19,23 +19,28 @@ config: nMels 128, audio 1280/32L/20H, text 1280/4L/20H, vocab 51866. Conv weigh
 already MLX layout (O,K,I) in the mlx-community safetensors → load direct, no transpose.
 `attn.key` has NO bias. Encoder pos-emb = sinusoids (computed); decoder pos-emb learned.
 
-## Status
-- ✅ Model (Whisper.swift: attention/blocks/encoder/decoder) + dir loader + CLI, **parity-verified**.
-  On **CPU** (true fp32): encoder rel=0.000 (bitwise exact), decoder logits rel 9.9e-5, next-token
-  argmax matches Python mlx-whisper. Golden: `scripts/capture_parity.py`.
-- ▶ Next (harness around the verified model): mel frontend (log-mel 128 via MLXFFT STFT + baked
-  filters + manual reflect-pad), Whisper tokenizer (swift-transformers), autoregressive decoding
-  loop (sot/lang/task/timestamp tokens, KV cache), HF auto-download, `transcribe()` API.
+## Status — working end-to-end STT
+Every stage is parity-verified vs Python mlx-whisper (on CPU, true fp32):
+- Model (encoder+decoder): encoder rel 0.000 (bitwise exact), logits rel 9.9e-5, argmax match.
+- Mel frontend (`Audio.swift`, log-mel 128): rel 1.2e-7.
+- Greedy decode + KV-cached decode: token-exact. Timestamps (`ApplyTimestampRules` port): token-exact.
+- Tokenizer (`Tokenizer.swift`, swift-transformers) + `WhisperPipeline` (`Transcribe.swift`) + audio
+  loader (`AudioFile.swift`, AVFoundation) + HF auto-download (`Download.swift`, URLSession-cached).
+Goldens via `scripts/capture_*.py`. Transcribes a real wav → correct text + `[start → end]` segments.
 
 ## Parity / precision (important)
 - Run correctness parity on **CPU** (`Device.withDefaultDevice(Device(.cpu))`, the CLI default;
-  `--gpu` to opt in). MLX **GPU fp32 matmul is tf32-like** and accumulates over depth — it gave
-  encoder rel 0.31 over 32 layers (NOT a bug; same trap as the Zonos port). CPU is bitwise fp32.
+  `--gpu` to opt in). MLX **GPU fp32 matmul is tf32-like** and accumulates over depth — encoder
+  rel 0.31 over 32 layers on GPU (NOT a bug; same trap as the Zonos port). CPU is bitwise fp32.
 - Constants that are NOT checkpoint weights (encoder sinusoids, causal mask) must not be tracked
-  parameters → compute them on the fly (else `update()` expects/!misses them). `attn.key` has no bias.
+  parameters → compute them on the fly. `attn.key` has no bias. (See the `mlx-swift` skill's porting ref.)
 
 ## Build / run
-`swift build` · CPU parity (no metallib needed): `whisper-cli <dir> --golden goldens/whisper_parity.safetensors`
-- **metallib (GPU runs only):** `swift run` hits "Failed to load the default metallib". Workaround:
-  copy a compatible `mlx.metallib` next to the binary (`.build/.../release/`). Proper fix = xcodebuild
-  build-phase. CPU runs avoid this entirely. See the `mlx-swift` skill.
+- **CPU (default; no metallib needed):** `swift build -c release` then
+  `whisper-cli --model-repo mlx-community/whisper-large-v3-turbo --audio clip.wav [--timestamps] [--language ja]`
+  (or `--model-dir <local>`). Parity modes: `--golden`/`--mel-golden`/`--decode-golden`/`--decode-ts-golden`.
+- **GPU (`--gpu`):** `swift build` does NOT bundle the MLX metallib (SPM-CLI gap → "Failed to load the
+  default metallib"). Build via xcodebuild instead: `scripts/build-gpu.sh` (compiles + bundles the
+  metallib), then run `.xcdd/Build/Products/Release/whisper-cli ... --gpu`. NOTE: the CLI entry file must
+  NOT be named `main.swift` (top-level-code vs `@main` conflict under xcodebuild) — it's `WhisperCLI.swift`.
+  Real Xcode app targets bundle the metallib automatically.

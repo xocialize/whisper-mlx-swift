@@ -2,6 +2,7 @@
 .swiftpm/
 *.xcodeproj
 DerivedData/
+.xcdd/
 .DS_Store
 # weights / artifacts
 *.safetensors
