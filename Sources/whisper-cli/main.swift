@@ -4,7 +4,7 @@ import MLX
 import WhisperMLX
 
 @main
-struct WhisperCLI: ParsableCommand {
+struct WhisperCLI: AsyncParsableCommand {
     @Option(help: "Directory with config.json + weights.safetensors (for model parity/smoke)")
     var modelDir: String?
 
@@ -17,6 +17,15 @@ struct WhisperCLI: ParsableCommand {
     @Option(help: "Greedy-decode parity golden .safetensors (mel/initial/eot/generated)")
     var decodeGolden: String?
 
+    @Option(help: "Transcribe a golden's mel to text (loads the HF tokenizer); needs --model-dir")
+    var transcribeMel: String?
+
+    @Option(help: "Transcribe an audio file (wav/mp3/...) end-to-end; needs --model-dir")
+    var audio: String?
+
+    @Option(help: "Language code for transcription")
+    var language: String = "en"
+
     @Flag(help: "Run on GPU (default CPU = true fp32, no metallib needed)")
     var gpu = false
 
@@ -24,11 +33,14 @@ struct WhisperCLI: ParsableCommand {
         MLX.abs(a - b).max().item(Float.self) / (MLX.abs(b).max().item(Float.self) + 1e-9)
     }
 
-    func run() throws {
-        try Device.withDefaultDevice(Device(gpu ? .gpu : .cpu)) { try runImpl() }
+    func run() async throws {
+        // Tokenizer load is async (HF download) — do it before entering the device scope.
+        let needsTokenizer = transcribeMel != nil || audio != nil
+        let tokenizer = needsTokenizer ? try await WhisperTokenizer.from() : nil
+        try Device.withDefaultDevice(Device(gpu ? .gpu : .cpu)) { try runImpl(tokenizer) }
     }
 
-    func runImpl() throws {
+    func runImpl(_ tokenizer: WhisperTokenizer?) throws {
         if let melGolden {
             let g = try loadArrays(url: URL(fileURLWithPath: melGolden))
             let mel = WhisperAudio.logMelSpectrogram(g["audio"]!)
@@ -64,6 +76,20 @@ struct WhisperCLI: ParsableCommand {
             print("decode swift: \(gen)")
             print("decode golden: \(goldGen)")
             print("greedy decode \(gen == goldGen ? "✅ token-exact match" : "❌ MISMATCH")")
+        }
+
+        if let transcribeMel, let tokenizer {
+            let g = try loadArrays(url: URL(fileURLWithPath: transcribeMel))
+            let pipeline = WhisperPipeline(model: model, tokenizer: tokenizer)
+            let text = pipeline.transcribe(mel: g["mel"]!, language: language)
+            print("transcription: \(text.debugDescription)")
+        }
+
+        if let audio, let tokenizer {
+            let wav = try WhisperAudio.load(URL(fileURLWithPath: audio))
+            let pipeline = WhisperPipeline(model: model, tokenizer: tokenizer)
+            let text = pipeline.transcribe(audio: wav, language: language)
+            print("transcription: \(text.debugDescription)")
         }
     }
 }
