@@ -14,6 +14,9 @@ struct WhisperCLI: ParsableCommand {
     @Option(help: "Mel-frontend parity golden .safetensors (audio/mel) — no model needed")
     var melGolden: String?
 
+    @Option(help: "Greedy-decode parity golden .safetensors (mel/initial/eot/generated)")
+    var decodeGolden: String?
+
     @Flag(help: "Run on GPU (default CPU = true fp32, no metallib needed)")
     var gpu = false
 
@@ -50,6 +53,17 @@ struct WhisperCLI: ParsableCommand {
             let aS = argMax(logits[0, L - 1], axis: -1).item(Int.self)
             let aG = argMax(g["logits"]![0, L - 1], axis: -1).item(Int.self)
             print("argmax: swift=\(aS) golden=\(aG)  \(aS == aG ? "✅" : "❌")")
+        }
+
+        if let decodeGolden {
+            let g = try loadArrays(url: URL(fileURLWithPath: decodeGolden))
+            let initial = g["initial"]!.asArray(Int32.self).map { Int($0) }
+            let eot = Int(g["eot"]!.item(Int32.self))
+            let goldGen = g["generated"]!.asArray(Int32.self).map { Int($0) }
+            let gen = model.greedyDecode(mel: g["mel"]!, initialTokens: initial, eot: eot)
+            print("decode swift: \(gen)")
+            print("decode golden: \(goldGen)")
+            print("greedy decode \(gen == goldGen ? "✅ token-exact match" : "❌ MISMATCH")")
         }
     }
 }
