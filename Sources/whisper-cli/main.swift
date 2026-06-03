@@ -8,6 +8,9 @@ struct WhisperCLI: AsyncParsableCommand {
     @Option(help: "Directory with config.json + weights.safetensors (for model parity/smoke)")
     var modelDir: String?
 
+    @Option(help: "HF model repo to auto-download (e.g. mlx-community/whisper-large-v3-turbo)")
+    var modelRepo: String?
+
     @Option(help: "Model parity golden .safetensors (mel/tokens/encoder_out/logits)")
     var golden: String?
 
@@ -34,13 +37,19 @@ struct WhisperCLI: AsyncParsableCommand {
     }
 
     func run() async throws {
-        // Tokenizer load is async (HF download) — do it before entering the device scope.
+        // Network (tokenizer + weight download) is async — resolve before the device scope.
         let needsTokenizer = transcribeMel != nil || audio != nil
         let tokenizer = needsTokenizer ? try await WhisperTokenizer.from() : nil
-        try Device.withDefaultDevice(Device(gpu ? .gpu : .cpu)) { try runImpl(tokenizer) }
+
+        var modelURL: URL? = modelDir.map { URL(fileURLWithPath: $0) }
+        if modelURL == nil, let repo = modelRepo {
+            modelURL = try await WhisperLoader.downloadRepo(repo, files: ["config.json", "weights.safetensors"])
+        }
+
+        try Device.withDefaultDevice(Device(gpu ? .gpu : .cpu)) { try runImpl(tokenizer, modelURL) }
     }
 
-    func runImpl(_ tokenizer: WhisperTokenizer?) throws {
+    func runImpl(_ tokenizer: WhisperTokenizer?, _ modelURL: URL?) throws {
         if let melGolden {
             let g = try loadArrays(url: URL(fileURLWithPath: melGolden))
             let mel = WhisperAudio.logMelSpectrogram(g["audio"]!)
@@ -49,8 +58,8 @@ struct WhisperCLI: AsyncParsableCommand {
                          relMax(mel, g["mel"]!), "\(mel.shape)", "\(g["mel"]!.shape)"))
         }
 
-        guard let modelDir else { return }
-        let model = try WhisperLoader.fromDirectory(URL(fileURLWithPath: modelDir))
+        guard let modelURL else { return }
+        let model = try WhisperLoader.fromDirectory(modelURL)
         print("Loaded Whisper — \(model.dims.nAudioLayer) enc / \(model.dims.nTextLayer) dec layers")
 
         if let golden {
