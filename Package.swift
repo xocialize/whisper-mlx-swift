@@ -31,7 +31,8 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFFT", package: "mlx-swift"),
                 .product(name: "Transformers", package: "swift-transformers"),
-            ]
+            ],
+            resources: [.copy("Resources/mel_filters_128.safetensors")]
         ),
         .executableTarget(
             name: "whisper-cli",

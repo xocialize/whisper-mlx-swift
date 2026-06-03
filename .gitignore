@@ -8,3 +8,5 @@ DerivedData/
 *.npz
 *.wav
 weights/
+# ...but the baked mel filterbank IS a shipped resource (needed to build)
+!Sources/WhisperMLX/Resources/*.safetensors
