@@ -152,6 +152,11 @@ public final class Whisper: Module {
 
     public func embedAudio(_ mel: MLXArray) -> MLXArray { encoder(mel) }
 
+    /// Decoder logits given precomputed audio features (for stage-isolated parity).
+    public func logits(_ tokens: MLXArray, audioFeatures: MLXArray) -> MLXArray {
+        decoder(tokens, xa: audioFeatures)
+    }
+
     public func callAsFunction(_ mel: MLXArray, _ tokens: MLXArray) -> MLXArray {
         decoder(tokens, xa: encoder(mel))
     }
