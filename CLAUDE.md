@@ -20,11 +20,22 @@ already MLX layout (O,K,I) in the mlx-community safetensors → load direct, no 
 `attn.key` has NO bias. Encoder pos-emb = sinusoids (computed); decoder pos-emb learned.
 
 ## Status
-- ✅ Scaffold + model (Whisper.swift: attention/blocks/encoder/decoder) + dir loader + CLI smoke.
-- ▶ Next: mel frontend (log-mel 128 via MLXFFT STFT + baked filters), Whisper tokenizer
-  (swift-transformers), decoding loop (lang/task tokens, greedy), HF auto-download,
-  parity vs Python mlx-whisper, then a transcribe() API for tts-validation parity.
+- ✅ Model (Whisper.swift: attention/blocks/encoder/decoder) + dir loader + CLI, **parity-verified**.
+  On **CPU** (true fp32): encoder rel=0.000 (bitwise exact), decoder logits rel 9.9e-5, next-token
+  argmax matches Python mlx-whisper. Golden: `scripts/capture_parity.py`.
+- ▶ Next (harness around the verified model): mel frontend (log-mel 128 via MLXFFT STFT + baked
+  filters + manual reflect-pad), Whisper tokenizer (swift-transformers), autoregressive decoding
+  loop (sot/lang/task/timestamp tokens, KV cache), HF auto-download, `transcribe()` API.
+
+## Parity / precision (important)
+- Run correctness parity on **CPU** (`Device.withDefaultDevice(Device(.cpu))`, the CLI default;
+  `--gpu` to opt in). MLX **GPU fp32 matmul is tf32-like** and accumulates over depth — it gave
+  encoder rel 0.31 over 32 layers (NOT a bug; same trap as the Zonos port). CPU is bitwise fp32.
+- Constants that are NOT checkpoint weights (encoder sinusoids, causal mask) must not be tracked
+  parameters → compute them on the fly (else `update()` expects/!misses them). `attn.key` has no bias.
 
 ## Build / run
-`swift build`  ·  run smoke: `swift run whisper-cli <dir-with-config+weights>`
-(if metallib error on run, build/run via xcodebuild against a generated scheme).
+`swift build` · CPU parity (no metallib needed): `whisper-cli <dir> --golden goldens/whisper_parity.safetensors`
+- **metallib (GPU runs only):** `swift run` hits "Failed to load the default metallib". Workaround:
+  copy a compatible `mlx.metallib` next to the binary (`.build/.../release/`). Proper fix = xcodebuild
+  build-phase. CPU runs avoid this entirely. See the `mlx-swift` skill.
