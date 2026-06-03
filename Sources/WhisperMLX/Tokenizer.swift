@@ -10,6 +10,7 @@ public struct WhisperTokenizer {
     public let transcribe: Int
     public let translate: Int
     public let noTimestamps: Int
+    public let timestampBegin: Int  // id of <|0.00|>
 
     public static func from(repo: String = "openai/whisper-large-v3") async throws -> WhisperTokenizer {
         let t = try await AutoTokenizer.from(pretrained: repo)
@@ -21,7 +22,8 @@ public struct WhisperTokenizer {
             eot: id("<|endoftext|>", 50257),
             transcribe: id("<|transcribe|>", 50360),
             translate: id("<|translate|>", 50359),
-            noTimestamps: id("<|notimestamps|>", 50364)
+            noTimestamps: id("<|notimestamps|>", 50364),
+            timestampBegin: id("<|0.00|>", 50365)
         )
     }
 
@@ -30,9 +32,12 @@ public struct WhisperTokenizer {
         tok.convertTokenToId("<|\(code)|>") ?? 50259
     }
 
-    /// SOT sequence the decoder is primed with: [sot, language, task, notimestamps].
-    public func initialTokens(language: String, translate doTranslate: Bool = false) -> [Int] {
-        [sot, languageToken(language), doTranslate ? translate : transcribe, noTimestamps]
+    /// SOT sequence the decoder is primed with. With `timestamps: false` (default), appends
+    /// <|notimestamps|>; with `true`, omits it so the timestamp rules can emit timestamp tokens.
+    public func initialTokens(language: String, translate doTranslate: Bool = false, timestamps: Bool = false) -> [Int] {
+        var seq = [sot, languageToken(language), doTranslate ? translate : transcribe]
+        if !timestamps { seq.append(noTimestamps) }
+        return seq
     }
 
     public func decode(_ ids: [Int]) -> String {

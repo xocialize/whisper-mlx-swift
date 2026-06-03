@@ -20,6 +20,9 @@ struct WhisperCLI: AsyncParsableCommand {
     @Option(help: "Greedy-decode parity golden .safetensors (mel/initial/eot/generated)")
     var decodeGolden: String?
 
+    @Option(help: "Timestamped-decode parity golden (mel/initial/eot/timestamp_begin/no_timestamps/generated)")
+    var decodeTsGolden: String?
+
     @Option(help: "Transcribe a golden's mel to text (loads the HF tokenizer); needs --model-dir")
     var transcribeMel: String?
 
@@ -28,6 +31,9 @@ struct WhisperCLI: AsyncParsableCommand {
 
     @Option(help: "Language code for transcription")
     var language: String = "en"
+
+    @Flag(help: "Emit segment timestamps when transcribing --audio")
+    var timestamps = false
 
     @Flag(help: "Run on GPU (default CPU = true fp32, no metallib needed)")
     var gpu = false
@@ -88,6 +94,19 @@ struct WhisperCLI: AsyncParsableCommand {
             print("decode cached:   \(genCached)   \(genCached == goldGen ? "✅ token-exact" : "❌ MISMATCH")")
         }
 
+        if let decodeTsGolden {
+            let g = try loadArrays(url: URL(fileURLWithPath: decodeTsGolden))
+            let initial = g["initial"]!.asArray(Int32.self).map { Int($0) }
+            let eot = Int(g["eot"]!.item(Int32.self))
+            let tb = Int(g["timestamp_begin"]!.item(Int32.self))
+            let nts = Int(g["no_timestamps"]!.item(Int32.self))
+            let goldGen = g["generated"]!.asArray(Int32.self).map { Int($0) }
+            let gen = model.greedyDecodeTimestamped(mel: g["mel"]!, initialTokens: initial, eot: eot,
+                                                    timestampBegin: tb, noTimestamps: nts)
+            print("ts decode golden: \(goldGen)")
+            print("ts decode swift:  \(gen)   \(gen == goldGen ? "✅ token-exact" : "❌ MISMATCH")")
+        }
+
         if let transcribeMel, let tokenizer {
             let g = try loadArrays(url: URL(fileURLWithPath: transcribeMel))
             let pipeline = WhisperPipeline(model: model, tokenizer: tokenizer)
@@ -98,8 +117,13 @@ struct WhisperCLI: AsyncParsableCommand {
         if let audio, let tokenizer {
             let wav = try WhisperAudio.load(URL(fileURLWithPath: audio))
             let pipeline = WhisperPipeline(model: model, tokenizer: tokenizer)
-            let text = pipeline.transcribe(audio: wav, language: language)
-            print("transcription: \(text.debugDescription)")
+            if timestamps {
+                for s in pipeline.transcribeSegments(audio: wav, language: language) {
+                    print(String(format: "[%.2f → %.2f] %@", s.start, s.end, s.text))
+                }
+            } else {
+                print("transcription: \(pipeline.transcribe(audio: wav, language: language).debugDescription)")
+            }
         }
     }
 }
