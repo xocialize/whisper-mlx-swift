@@ -137,6 +137,29 @@ final class AudioEncoder: Module {
         for b in blocks { x = b(x) }
         return ln_post(x)
     }
+
+    /// Stacked encoder hidden states — MuseTalk's audio conditioning (HF
+    /// `output_hidden_states=True`): the input to each block (pre-layer) plus
+    /// `ln_post(final)`, stacked on a new axis → (B, nAudioCtx, nAudioLayer+1, nAudioState).
+    /// Mirrors the Python `musetalk_mlx.whisper.WhisperEncoder` collection.
+    ///
+    /// `positionEmbedding`: HF ships a *learned* `embed_positions.weight` that differs from the
+    /// recomputed OpenAI sinusoids by ~2.4e-4; pass it to match the oracle exactly. When nil,
+    /// falls back to computed sinusoids (the mlx-community STT path, which ships no pos-emb).
+    func hiddenStates(_ mel: MLXArray, positionEmbedding: MLXArray? = nil) -> MLXArray {
+        var x = gelu(conv1(mel))
+        x = gelu(conv2(x))
+        let seq = x.dim(1)
+        let pe = positionEmbedding.map { $0[0 ..< seq] } ?? sinusoids(length: seq, channels: x.dim(2))
+        x = x + pe.asType(x.dtype)
+        var states: [MLXArray] = []
+        for b in blocks {
+            states.append(x)        // input to this block (HF collects pre-layer)
+            x = b(x)
+        }
+        states.append(ln_post(x))   // final = layer_norm(last)
+        return stacked(states, axis: 2)
+    }
 }
 
 final class TextDecoder: Module {
@@ -186,6 +209,13 @@ public final class Whisper: Module {
     }
 
     public func embedAudio(_ mel: MLXArray) -> MLXArray { encoder(mel) }
+
+    /// Stacked encoder hidden states for MuseTalk-style audio conditioning.
+    /// mel: (B, nAudioCtx, nMels) channels-last → (B, nAudioCtx, nAudioLayer+1, nAudioState).
+    /// Pass the checkpoint's `embed_positions.weight` to match HF exactly (see `hiddenStates`).
+    public func encoderHiddenStates(_ mel: MLXArray, positionEmbedding: MLXArray? = nil) -> MLXArray {
+        encoder.hiddenStates(mel, positionEmbedding: positionEmbedding)
+    }
 
     /// Decoder logits given precomputed audio features (for stage-isolated parity).
     public func logits(_ tokens: MLXArray, audioFeatures: MLXArray) -> MLXArray {

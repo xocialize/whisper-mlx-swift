@@ -23,6 +23,9 @@ struct WhisperCLI: AsyncParsableCommand {
     @Option(help: "Timestamped-decode parity golden (mel/initial/eot/timestamp_begin/no_timestamps/generated)")
     var decodeTsGolden: String?
 
+    @Option(help: "MuseTalk audio-conditioning golden .safetensors (mel/stacked) — encoder hidden states; needs --model-dir")
+    var musetalkAudioGolden: String?
+
     @Option(help: "Transcribe a golden's mel to text (loads the HF tokenizer); needs --model-dir")
     var transcribeMel: String?
 
@@ -80,6 +83,21 @@ struct WhisperCLI: AsyncParsableCommand {
             let aS = argMax(logits[0, L - 1], axis: -1).item(Int.self)
             let aG = argMax(g["logits"]![0, L - 1], axis: -1).item(Int.self)
             print("argmax: swift=\(aS) golden=\(aG)  \(aS == aG ? "✅" : "❌")")
+        }
+
+        if let musetalkAudioGolden {
+            let g = try loadArrays(url: URL(fileURLWithPath: musetalkAudioGolden))
+            // Golden mel is (B, nMels, L) channels-first; the encoder wants (B, L, nMels) NLC.
+            let mel = g["mel"]!.transposed(0, 2, 1)
+            let hs = model.encoderHiddenStates(mel, positionEmbedding: g["embed_positions"])
+            eval(hs)
+            let gold = g["stacked"]!
+            print(String(format: "musetalk audio  rel=%.3e  shape=%@  (golden %@)",
+                         relMax(hs, gold), "\(hs.shape)", "\(gold.shape)"))
+            // Per-hidden-state breakdown (0..nLayers) localizes any mismatch (e.g. pos-emb at [0]).
+            for i in 0 ..< gold.dim(2) {
+                print(String(format: "  hidden[%d]      rel=%.3e", i, relMax(hs[0..., 0..., i, 0...], gold[0..., 0..., i, 0...])))
+            }
         }
 
         if let decodeGolden {

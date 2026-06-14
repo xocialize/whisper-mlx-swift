@@ -28,6 +28,19 @@ Every stage is parity-verified vs Python mlx-whisper (on CPU, true fp32):
   loader (`AudioFile.swift`, AVFoundation) + HF auto-download (`Download.swift`, URLSession-cached).
 Goldens via `scripts/capture_*.py`. Transcribes a real wav → correct text + `[start → end]` segments.
 
+## MuseTalk audio-conditioning feature path (2026-06-14)
+For the MuseTalk → MLXEngine port, `AudioEncoder` gained `hiddenStates(_:positionEmbedding:)` +
+public `Whisper.encoderHiddenStates(_:positionEmbedding:)` — MuseTalk's audio conditioning is the
+whisper-tiny encoder's **stacked** hidden states (HF `output_hidden_states=True`: input to each block
++ `ln_post(final)` → `(B, seq, nLayers+1, d)`). Additive only; `callAsFunction` (the STT path) is
+untouched. **Pass the checkpoint's `embed_positions.weight`** (HF deviates ~2.4e-4 from computed
+sinusoids; nil → sinusoids fallback for mlx-community STT). Gate (CPU fp32):
+`whisper-cli --model-dir goldens/whisper-tiny-encoder --musetalk-audio-golden goldens/musetalk_audio_golden.safetensors`
+→ **rel 1.5e-5** (= MuseTalk's own encoder parity). Fixtures built by
+`scripts/capture_musetalk_audio_golden.py` (musetalk-mlx venv): remaps HF whisper-tiny encoder →
+mlx-examples naming, exports the `audio_golden.npz` arrays + stored pos-emb to safetensors.
+`get_whisper_chunk` + sinusoidal PE stay in the downstream talking-head package (MuseTalk-specific).
+
 ## Parity / precision (important)
 - Run correctness parity on **CPU** (`Device.withDefaultDevice(Device(.cpu))`, the CLI default;
   `--gpu` to opt in). MLX **GPU fp32 matmul is tf32-like** and accumulates over depth — encoder
