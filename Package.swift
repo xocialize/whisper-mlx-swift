@@ -19,8 +19,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.21.0"),
-        // HF hub download + Whisper tokenizer.
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "0.1.18"),
+        // HF Whisper tokenizer. 1.x to co-resolve with the engine/wan-core ecosystem (E12):
+        // the 0.x line (0.1.18..<1.0) is disjoint with the 1.x range everything else pins.
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     ],
     targets: [
@@ -30,7 +31,7 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFFT", package: "mlx-swift"),
-                .product(name: "Transformers", package: "swift-transformers"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             resources: [.copy("Resources/mel_filters_128.safetensors")]
         ),
