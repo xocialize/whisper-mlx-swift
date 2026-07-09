@@ -23,6 +23,10 @@ let package = Package(
         // the 0.x line (0.1.18..<1.0) is disjoint with the 1.x range everything else pins.
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+        // Shared STFT/mel primitives (extracted FROM this package's Audio.swift).
+        // Local path during extraction; publish mlx-audio-dsp + restore a URL dep
+        // before tagging whisper-mlx-swift.
+        .package(path: "../../WIP/mlx-audio-dsp"),
     ],
     targets: [
         .target(
@@ -32,6 +36,7 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFFT", package: "mlx-swift"),
                 .product(name: "Tokenizers", package: "swift-transformers"),
+                .product(name: "MLXAudioDSP", package: "mlx-audio-dsp"),
             ],
             resources: [.copy("Resources/mel_filters_128.safetensors")]
         ),
@@ -41,6 +46,10 @@ let package = Package(
                 "WhisperMLX",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
+        ),
+        .testTarget(
+            name: "WhisperMLXTests",
+            dependencies: ["WhisperMLX"]
         ),
     ]
 )
