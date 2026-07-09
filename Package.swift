@@ -24,9 +24,7 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         // Shared STFT/mel primitives (extracted FROM this package's Audio.swift).
-        // Local path during extraction; publish mlx-audio-dsp + restore a URL dep
-        // before tagging whisper-mlx-swift.
-        .package(path: "../../WIP/mlx-audio-dsp"),
+        .package(url: "https://github.com/xocialize/mlx-audio-dsp.git", from: "0.1.0"),
     ],
     targets: [
         .target(

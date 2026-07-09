@@ -10,6 +10,15 @@
       }
     },
     {
+      "identity" : "mlx-audio-dsp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xocialize/mlx-audio-dsp.git",
+      "state" : {
+        "revision" : "73823a16924363e2be7fa5f10ed767d1f7ffd9ae",
+        "version" : "0.1.0"
+      }
+    },
+    {
       "identity" : "mlx-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ml-explore/mlx-swift",
