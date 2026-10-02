@@ -14,10 +14,7 @@ import MLXAudioDSP
 
 final class AudioRefactorParityTests: XCTestCase {
 
-    override class func setUp() {
-        super.setUp()
-        Device.setDefault(device: Device(.cpu))
-    }
+    override func invokeTest() { withMLXCPU { super.invokeTest() } }
 
     /// Verbatim copy of the pre-extraction implementation (do not "improve").
     private func legacyLogMelSpectrogram(_ audio: MLXArray) -> MLXArray {
